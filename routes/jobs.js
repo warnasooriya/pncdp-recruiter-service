@@ -10,4 +10,7 @@ router.post('/', upload.fields([
   { name: 'banner', maxCount: 1 },
 ]), jobsController.createJob);
 
+
+router.post('/generate-banner', jobsController.generateBanner);
+
 module.exports = router;

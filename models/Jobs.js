@@ -5,7 +5,6 @@ const JobsSchema = new mongoose.Schema(
     userId: {
       type: String,
       required: true,
-      unique: true,
       index: true, // Index for faster lookups
     },
     title: {
