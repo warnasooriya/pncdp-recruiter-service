@@ -37,6 +37,10 @@ const JobsSchema = new mongoose.Schema(
       type: Date,
         required: true,
     },
+    requirements: {
+      type: [String],
+      required: true,
+    },
   },
   {
     timestamps: true,

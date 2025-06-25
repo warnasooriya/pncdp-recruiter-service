@@ -12,7 +12,7 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 exports.createJob = async (req, res) => {
   try {
-    const { title, description, location, type, banner, deadline, userId } =
+    const { title, description, location, type, banner, deadline, userId , requirements} =
       req.body;
 
     // Validate job data
@@ -38,6 +38,11 @@ exports.createJob = async (req, res) => {
       return res.status(400).json({ error: "Job deadline is required" });
     }
 
+    if(requirements.length === 0) {
+      return res.status(400).json({ error: "Job requirements are required" });
+    }
+
+
     // Create a new job
     const newJob = new Job({
       userId,
@@ -47,6 +52,7 @@ exports.createJob = async (req, res) => {
       jobType: type,
       banner,
       deadline,
+      requirements,
     });
 
     // need to move banner to S3 bucket 
