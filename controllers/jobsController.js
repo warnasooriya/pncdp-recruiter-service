@@ -104,18 +104,31 @@ exports.createJob = async (req, res) => {
   }
 };
 
+function buildImagePrompt(description, skills = []) {
+  return `Design a modern, clean, and tech-oriented web banner for a job post.
+Job Description: ${description}.
+The banner should include subtle, professional visual icons or illustrations that meaningfully represent the following skills: ${skills.join(", ")}.
+Use a minimalist layout with soft gradients or neutral tech colors ensuring visual balance. Include a simple callout section for the job title and an inviting message ”.
+The design should be visually attractive but not crowded — clean typography, matching icons, and job-related elements (like coding screens, UX wireframes, cloud tech, etc.) where appropriate. Avoid large or complex visuals.
+Format: 1792x1024 (suitable for web banners). Style must match modern SaaS or career portal design trends. `;
+}
+
 exports.generateBanner = async (req, res) => {
   try {
-    const { description } = req.body;
+    const { description , skills } = req.body;
 
     if (!description) {
       return res.status(400).json({ error: "Description is required" });
     }
 
+     // optional array from frontend
+    const prompt = buildImagePrompt(description, skills);
+    console.log(prompt);
+
     // Generate image with OpenAI DALL·E
     const response = await openai.images.generate({
       model: "dall-e-3",
-      prompt: description,
+      prompt: prompt,
       size: "1792x1024",
       quality: "standard",
       n: 1,
