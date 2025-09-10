@@ -11,6 +11,7 @@ const { upload } = require("../services/StorageService");
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const mongoose = require("mongoose");
 const { getSignedUrl } = require("../services/StorageService");
+const fsp = require("fs/promises");
 
 exports.createJob = async (req, res) => {
   try {
@@ -279,6 +280,25 @@ exports.getJobsById = async (req, res) => {
       application.profileImage = getSignedUrl(application.profileImage);
 
     });
+
+    const destDir = path.join(process.env.RESUME_DIR_PATH, Jobobj._id.toString());
+    await fsp.mkdir(destDir, { recursive: true });
+
+    Jobobj.applications.forEach(async (application) => {
+      // Download resume from S3 signed URL
+      const fileName  = path.basename(application.resume).split("?")[0];
+      // check if file already exists
+      if (fs.existsSync(path.join(destDir, fileName))) {
+        return;
+      }
+      const resumeResponse = await axios.get(application.resume, { responseType: "arraybuffer" });
+      const resumeBuffer = Buffer.from(resumeResponse.data, "binary");
+      const resumePath = path.join(destDir, fileName);
+      await fsp.writeFile(resumePath, resumeBuffer);
+
+
+    });
+    
 
 
     res.json(Jobobj);
