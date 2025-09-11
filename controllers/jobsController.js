@@ -106,7 +106,7 @@ exports.createJob = async (req, res) => {
 };
 
 function buildImagePrompt(description, skills = []) {
-  return `Design a modern, clean, and tech-oriented web banner for a job post.
+  return `TASK: Create a clean, modern web banner background for a job posting. .
 Job Description: ${description}.
 The banner should include subtle, professional visual icons or illustrations that meaningfully represent the following skills: ${skills.join(", ")}.
 Use a minimalist layout with soft gradients or neutral tech colors ensuring visual balance. Include a simple callout section for the job title and an inviting message ”.
@@ -249,6 +249,7 @@ exports.getJobsById = async (req, res) => {
           createdAt: { $first: "$createdAt" },
           banner: { $first: "$banner" },
           requirements: { $first: "$requirements" },
+          description: { $first: "$description" },
           applications: {
             $push: {
               _id: "$applications._id",
@@ -299,7 +300,24 @@ exports.getJobsById = async (req, res) => {
 
     });
     
+    // calling pyton endpoint and get application rankings
+    const rankingResponse = await axios.post(process.env.PYTHON_SERVICE_URL, 
+      { 
+        jobId: Jobobj._id.toString() ,
+        job_description: Jobobj.description,
 
+      });
+    const rankingResult = rankingResponse.data.candidates; // Assuming response is { rankings: [ { userId, score }, ... ] }
+
+    Jobobj.applications.forEach(async (application) => {
+      const fileName  = path.basename(application.resume).split("?")[0];
+      const resumeMatch = rankingResult.find((item) => item.filename  === fileName);
+      if (resumeMatch) {
+        application.score = resumeMatch.score;
+        application.explanation = resumeMatch;
+      }
+    });
+ 
 
     res.json(Jobobj);
   } catch (error) {
