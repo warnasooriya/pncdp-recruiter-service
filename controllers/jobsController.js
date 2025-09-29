@@ -64,19 +64,15 @@ exports.createJob = async (req, res) => {
       deadline,
       requirements,
     });
-
     // need to move banner to S3 bucket
-    // banner files stored in ../images
     const bannerPath = path.join(__dirname, "../images", banner);
     if (!fs.existsSync(bannerPath)) {
       return res.status(400).json({ error: "Banner file does not exist" });
     }
-
     // Create a read stream for the banner file
     if (!fs.existsSync(bannerPath)) {
       return res.status(400).json({ error: "Banner file does not exist" });
     }
-
     // Generate a unique name for the banner
     const bucketName = process.env.AWS_BUCKET;
     const s3 = new AWS.S3({
@@ -93,7 +89,6 @@ exports.createJob = async (req, res) => {
       ContentType: "image/png",
     };
     await s3.upload(uploadParams).promise();
-
     // Optionally, delete the local banner file after uploading
     fs.unlinkSync(bannerPath);
 
@@ -109,8 +104,11 @@ function buildImagePrompt(description, skills = []) {
   return `TASK: Create a clean, modern web banner background for a job posting. .
 Job Description: ${description}.
 The banner should include subtle, professional visual icons or illustrations that meaningfully represent the following skills: ${skills.join(", ")}.
-Use a minimalist layout with soft gradients or neutral tech colors ensuring visual balance. Include a simple callout section for the job title and an inviting message ”.
-The design should be visually attractive but not crowded — clean typography, matching icons, and job-related elements (like coding screens, UX wireframes, cloud tech, etc.) where appropriate. Avoid large or complex visuals.
+Use a minimalist layout with soft gradients or neutral tech colors ensuring visual balance. Include a simple callout section for the job title and an 
+inviting message ”.
+The design should be visually attractive but not crowded — clean typography, matching icons, and job-related elements (like coding screens, UX wireframes, 
+cloud tech, etc.)
+where appropriate. Avoid large or complex visuals.
 Format: 1792x1024 (suitable for web banners). Style must match modern SaaS or career portal design trends. `;
 }
 
@@ -210,6 +208,7 @@ exports.getJobsByUserId = async (req, res) => {
 exports.getJobsById = async (req, res) => {
   try {
     const jobId = new ObjectId(req.params.id);
+    const comment  = req.body.comment;
 
     const query = [
       {
@@ -255,12 +254,12 @@ exports.getJobsById = async (req, res) => {
               _id: "$applications._id",
               resume: "$applications.resume",
               appliedAt: "$applications.createdAt",
+              profileImage: "$applications.user.profileImage",
               userId: "$applications.user._id",
-              usereEail: "$applications.user.email",
+              usereEmail: "$applications.user.email",
               usereFullName: "$applications.user.fullName",
               usereHeadline: "$applications.user.headline",
               usereAbout: "$applications.user.about",
-              profileImage: "$applications.user.profileImage",
             },
           },
         },
@@ -277,8 +276,14 @@ exports.getJobsById = async (req, res) => {
     Jobobj.banner = getSignedUrl(Jobobj.banner);
 
     Jobobj.applications.forEach((application) => {
-      application.resume = getSignedUrl(application.resume);
-      application.profileImage = getSignedUrl(application.profileImage);
+      if (application.resume) {
+        application.resume = getSignedUrl(application.resume);
+      }
+    
+      if (application.profileImage){
+        application.profileImage = getSignedUrl(application.profileImage);
+      } 
+      
 
     });
 
@@ -301,11 +306,12 @@ exports.getJobsById = async (req, res) => {
     });
     
     // calling pyton endpoint and get application rankings
+    const descriptionForPython = Jobobj.description + (comment ?  ' { special comment - ' + comment  + ' } ': '');
     const rankingResponse = await axios.post(process.env.PYTHON_SERVICE_URL, 
       { 
         jobId: Jobobj._id.toString() ,
-        job_description: Jobobj.description,
-
+        job_description: descriptionForPython,
+        
       });
     const rankingResult = rankingResponse.data.candidates; // Assuming response is { rankings: [ { userId, score }, ... ] }
 

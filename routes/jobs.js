@@ -13,10 +13,9 @@ router.post('/', upload.fields([
 
 router.post('/generate-banner', jobsController.generateBanner);
 
-
 router.get('/byowner/:id', jobsController.getJobsByUserId);
 
-router.get('/getjobById/:id', jobsController.getJobsById);
+router.post('/getjobById/:id', jobsController.getJobsById);
 
 
 module.exports = router;
