@@ -101,35 +101,92 @@ exports.createJob = async (req, res) => {
 };
 
 function buildImagePrompt(description, skills = []) {
-  return `TASK: Create a clean, modern web banner background for a job posting. .
-Job Description: ${description}.
-The banner should include subtle, professional visual icons or illustrations that meaningfully represent the following skills: ${skills.join(", ")}.
-Use a minimalist layout with soft gradients or neutral tech colors ensuring visual balance. Include a simple callout section for the job title and an 
-inviting message ”.
-The design should be visually attractive but not crowded — clean typography, matching icons, and job-related elements (like coding screens, UX wireframes, 
-cloud tech, etc.)
-where appropriate. Avoid large or complex visuals.
-Format: 1792x1024 (suitable for web banners). Style must match modern SaaS or career portal design trends. `;
+  // Extract key themes and industry from description
+  const industryKeywords = {
+    tech: ['software', 'developer', 'programming', 'coding', 'engineer', 'technical', 'IT', 'technology', 'digital', 'web', 'mobile', 'app'],
+    design: ['design', 'UI', 'UX', 'graphic', 'visual', 'creative', 'artist', 'designer'],
+    marketing: ['marketing', 'social media', 'content', 'brand', 'advertising', 'campaign'],
+    finance: ['finance', 'accounting', 'financial', 'analyst', 'banking', 'investment'],
+    healthcare: ['healthcare', 'medical', 'nurse', 'doctor', 'health', 'clinical'],
+    education: ['teacher', 'education', 'instructor', 'academic', 'training'],
+    sales: ['sales', 'business development', 'account manager', 'customer'],
+    hr: ['human resources', 'HR', 'recruitment', 'talent', 'people']
+  };
+
+  let detectedIndustry = 'general';
+  const lowerDesc = description.toLowerCase();
+  
+  for (const [industry, keywords] of Object.entries(industryKeywords)) {
+    if (keywords.some(keyword => lowerDesc.includes(keyword.toLowerCase()))) {
+      detectedIndustry = industry;
+      break;
+    }
+  }
+
+  // Industry-specific visual elements
+  const industryVisuals = {
+    tech: 'abstract geometric patterns, subtle circuit board elements, modern tech icons, clean code snippets background',
+    design: 'creative geometric shapes, color palettes, design tools silhouettes, artistic elements',
+    marketing: 'growth charts, social media icons, brand elements, communication symbols',
+    finance: 'financial charts, data visualization, professional graphs, analytical elements',
+    healthcare: 'medical cross symbols, health icons, caring hands, wellness elements',
+    education: 'book symbols, graduation elements, learning icons, academic motifs',
+    sales: 'growth arrows, handshake symbols, target icons, success indicators',
+    hr: 'people silhouettes, team symbols, networking icons, collaboration elements',
+    general: 'professional abstract patterns, corporate elements, business symbols'
+  };
+
+  return `Create a professional web banner (1792x1024) for a job posting with these STRICT requirements:
+
+CONTENT RESTRICTIONS:
+- NO text, letters, words, or readable content anywhere in the image
+- NO company logos, brand names, or identifiable symbols
+- NO people faces, photographs, or realistic human figures
+- NO complex illustrations or detailed graphics
+
+DESIGN REQUIREMENTS:
+- Clean, minimalist background with subtle ${industryVisuals[detectedIndustry]}
+- Use professional color palette: soft blues, grays, whites, or muted corporate colors
+- Gradient background from light to slightly darker shade
+- Abstract geometric shapes or patterns only
+- Maximum 3-4 visual elements total
+- 70% empty space for text overlay
+
+INDUSTRY CONTEXT: ${detectedIndustry}
+JOB FOCUS: ${description.substring(0, 200)}...
+SKILLS TO REPRESENT: ${skills.slice(0, 5).join(", ")}
+
+STYLE: Modern corporate design, suitable for LinkedIn or professional job boards
+MOOD: Professional, trustworthy, innovative, clean
+FORMAT: Web banner optimized for job posting platforms
+
+The banner should feel appropriate for the job role while maintaining complete visual simplicity and professionalism.`;
 }
 
 exports.generateBanner = async (req, res) => {
   try {
-    const { description , skills } = req.body;
+    const { description, skills, title } = req.body;
 
     if (!description) {
-      return res.status(400).json({ error: "Description is required" });
+      return res.status(400).json({ error: "Job description is required" });
     }
 
-     // optional array from frontend
-    const prompt = buildImagePrompt(description, skills);
-    console.log(prompt);
+    // Validate description length for better AI processing
+    if (description.length < 50) {
+      return res.status(400).json({ error: "Job description must be at least 50 characters long for accurate banner generation" });
+    }
 
-    // Generate image with OpenAI DALL·E
+    // Build enhanced prompt with job context
+    const prompt = buildImagePrompt(description, skills || []);
+    console.log("Generated prompt:", prompt);
+
+    // Generate image with OpenAI DALL·E with enhanced parameters
     const response = await openai.images.generate({
       model: "dall-e-3",
       prompt: prompt,
       size: "1792x1024",
-      quality: "standard",
+      quality: "hd", // Use HD quality for more professional output
+      style: "natural", // Use natural style for more professional look
       n: 1,
     });
 
@@ -142,9 +199,13 @@ exports.generateBanner = async (req, res) => {
 
     const originalBuffer = Buffer.from(imageResponse.data, "binary");
 
-    // Compress image with sharp (JPEG format for better compression)
+    // Compress image with sharp while maintaining professional quality
     const compressedBuffer = await sharp(originalBuffer)
-      .jpeg({ quality: 70 }) // Change quality (50–80) as needed
+      .jpeg({ 
+        quality: 85, // Higher quality for professional banners
+        progressive: true, // Progressive JPEG for better web loading
+        mozjpeg: true // Use mozjpeg encoder for better compression
+      })
       .toBuffer();
 
     // Ensure the images directory exists
