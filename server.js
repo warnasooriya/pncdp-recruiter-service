@@ -23,7 +23,7 @@ const socketIO = require('socket.io')
         origin: "*"
     }
 });
-const PORT = process.env.PORT || 3600
+const PORT = process.env.PORT || 8080
 mongoose.set('strictQuery', false);
 console.log(process.env.NODE_ENV)
 
@@ -46,7 +46,9 @@ app.use('/', require('./routes/root'))
  app.use('/api/recruiter/jobs', jobRoutes);
 
 
- 
+ app.use('/helth',  require('./routes/health'));
+
+
 
 app.all('*', (req, res) => {
     res.status(404)
