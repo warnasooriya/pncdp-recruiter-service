@@ -12,6 +12,9 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const mongoose = require("mongoose");
 const { getSignedUrl } = require("../services/StorageService");
 const fsp = require("fs/promises");
+const redisClient = require("../config/redisClient");
+
+
 
 exports.createJob = async (req, res) => {
   try {
@@ -271,6 +274,23 @@ exports.getJobsById = async (req, res) => {
     const jobId = new ObjectId(req.params.id);
     const comment  = req.body.comment;
 
+    if (!jobId) {
+      return res.status(400).json({ error: "Job ID is required" });
+    }
+
+    const cacheId = `job:${jobId.toString()}:rankings`;
+    // check redis cache first
+ 
+    const cachedData =  await redisClient.get(cacheId);
+
+    console.log("Cached data for job ID:", jobId, cachedData);
+
+    if (cachedData) {
+      return res.json(JSON.parse(cachedData));
+    }
+
+ 
+
     const query = [
       {
         $match: {
@@ -367,6 +387,7 @@ exports.getJobsById = async (req, res) => {
     });
     
     // calling pyton endpoint and get application rankings
+
     const descriptionForPython = Jobobj.description + (comment ?  ' { special comment - ' + comment  + ' } ': '');
     const rankingResponse = await axios.post(process.env.PYTHON_SERVICE_URL, 
       { 
@@ -385,6 +406,8 @@ exports.getJobsById = async (req, res) => {
       }
     });
  
+    // set redis score cache
+    await redisClient.setEx(`job:${Jobobj._id.toString()}:rankings`, 3500, JSON.stringify(Jobobj));  
 
     res.json(Jobobj);
   } catch (error) {
