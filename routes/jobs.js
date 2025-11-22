@@ -17,5 +17,7 @@ router.get('/byowner/:id', jobsController.getJobsByUserId);
 
 router.post('/getjobById/:id', jobsController.getJobsById);
 
+router.get('/getCvsByJobId/:id', jobsController.getCvsByJobId);
+
 
 module.exports = router;

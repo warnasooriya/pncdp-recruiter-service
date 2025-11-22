@@ -1,5 +1,6 @@
 const { ObjectId } = require("mongoose").Types;
 const Job = require("../models/Jobs");
+const Application = require("../models/Application");
 const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
@@ -269,6 +270,27 @@ exports.getJobsByUserId = async (req, res) => {
   }
 };
 
+exports.getCvsByJobId = async (req, res) => {
+  try {
+    const jobId = req.params.id;
+    const cvs=[];
+    const applications= await Application.find({ 'jobId':jobId });
+     applications.forEach((application) => {
+       cvs.push(getSignedUrl(application.resume));
+    });
+
+    res.json({"files":cvs});
+  } catch (error) {
+    console.error("Error fetching applications:", error);
+    res.status(500).json({ error: "Failed to fetch applications" });
+  }
+};
+
+
+
+
+
+
 exports.getJobsById = async (req, res) => {
   try {
     const jobId = new ObjectId(req.params.id);
@@ -380,19 +402,24 @@ exports.getJobsById = async (req, res) => {
       const resumeBuffer = Buffer.from(resumeResponse.data, "binary");
       const resumePath = path.join(destDir, fileName);
       await fsp.writeFile(resumePath, resumeBuffer);
-
-
     });
     
     // calling pyton endpoint and get application rankings
 
+
     const descriptionForPython = Jobobj.description + (comment ?  ' { special comment - ' + comment  + ' } ': '');
+
+
+    const jobPrompt = buildJobPrompt(Jobobj, comment);
+
+    console.log("Job Prompt for Python Service:", jobPrompt);
     const rankingResponse = await axios.post(process.env.PYTHON_SERVICE_URL, 
       { 
         jobId: Jobobj._id.toString() ,
-        job_description: descriptionForPython,
+        job_description: jobPrompt,
         
       });
+
     const rankingResult = rankingResponse.data.candidates; // Assuming response is { rankings: [ { userId, score }, ... ] }
 
     Jobobj.applications.forEach(async (application) => {
@@ -413,3 +440,66 @@ exports.getJobsById = async (req, res) => {
     res.status(500).json({ error: "Failed to fetch job" });
   }
 };
+
+// Helper to build a structured prompt for the Python/AI ranking service
+function buildJobPrompt(job, comment) {
+  const {
+    title,
+    location,
+    jobType,
+    description,
+    requirements,
+    deadline,
+  } = job;
+
+  const requirementsLine = Array.isArray(requirements) && requirements.length
+    ? requirements.join("\n- ")
+    : "Not explicitly specified";
+
+  const recruiterNotes = comment
+    ? `\n### RECRUITER SPECIAL NOTES\n${comment}\n`
+    : "";
+
+  const deadlineText = deadline
+    ? new Date(deadline).toISOString().split("T")[0]
+    : "Not specified";
+
+  return `
+You are an AI assistant that ranks candidate resumes for a job posting.
+
+Your task:
+- Read the job details and job description.
+- Compare them with candidate resumes.
+- Return a JSON object with a "candidates" array.
+- Each candidate item must have: "filename", "score" (0–100), and "explanation" (short reason).
+
+### JOB META
+- Job Title: ${title || "Not specified"}
+- Location: ${location || "Not specified"}
+- Employment Type: ${jobType || "Not specified"}
+- Application Deadline: ${deadlineText}
+- Core Requirements:
+- ${requirementsLine}
+
+### JOB DESCRIPTION (as provided by recruiter / job post)
+"""
+${description || "No detailed description provided."}
+"""
+
+${recruiterNotes}
+
+### SCORING GUIDELINES
+- 80–100: Very strong match (skills, experience, domain fit).
+- 60–79: Good match (most key requirements met).
+- 40–59: Partial match (some relevant skills/experience).
+- 0–39: Weak match.
+
+Use the job description plus the requirements to judge:
+- Technical skill match (frameworks, languages, tools).
+- Years of experience and seniority fit.
+- Domain/industry relevance.
+- Match to responsibilities implied by the description.
+ 
+`.trim();
+}
+
