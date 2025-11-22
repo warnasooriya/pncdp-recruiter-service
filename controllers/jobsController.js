@@ -283,8 +283,6 @@ exports.getJobsById = async (req, res) => {
  
     const cachedData =  await redisClient.get(cacheId);
 
-    console.log("Cached data for job ID:", jobId, cachedData);
-
     if (cachedData) {
       return res.json(JSON.parse(cachedData));
     }
