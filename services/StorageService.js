@@ -60,9 +60,11 @@ const getSignedUrl = (key) => {
         const bucketName = process.env.AWS_BUCKET;
         return s3.getSignedUrl("getObject", {
             Bucket: bucketName,
-            Key: key,
-            Expires: 3600, // URL expires in 1 hour
+            Key: key            
         });
+        // can i set no expiration?      
+
+
     } catch (error) {
         console.log("Error generating signed URL:", error);
         throw error;

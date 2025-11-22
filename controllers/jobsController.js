@@ -407,7 +407,7 @@ exports.getJobsById = async (req, res) => {
     });
  
     // set redis score cache
-    await redisClient.setEx(`job:${Jobobj._id.toString()}:rankings`, 3500, JSON.stringify(Jobobj));  
+    await redisClient.set(`job:${Jobobj._id.toString()}:rankings`, JSON.stringify(Jobobj));  
 
     res.json(Jobobj);
   } catch (error) {
