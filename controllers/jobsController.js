@@ -305,7 +305,7 @@ exports.getJobsById = async (req, res) => {
  
     const cachedData =  await redisClient.get(cacheId);
 
-    if (cachedData) {
+    if (cachedData && comment== null) {
       return res.json(JSON.parse(cachedData));
     }
 
@@ -388,30 +388,7 @@ exports.getJobsById = async (req, res) => {
 
     });
 
-    const destDir = path.join(process.env.RESUME_DIR_PATH, Jobobj._id.toString());
-    await fsp.mkdir(destDir, { recursive: true });
-
-    Jobobj.applications.forEach(async (application) => {
-      // Download resume from S3 signed URL
-      const fileName  = path.basename(application.resume).split("?")[0];
-      // check if file already exists
-      if (fs.existsSync(path.join(destDir, fileName))) {
-        return;
-      }
-      const resumeResponse = await axios.get(application.resume, { responseType: "arraybuffer" });
-      const resumeBuffer = Buffer.from(resumeResponse.data, "binary");
-      const resumePath = path.join(destDir, fileName);
-      await fsp.writeFile(resumePath, resumeBuffer);
-    });
-    
-    // calling pyton endpoint and get application rankings
-
-
-    const descriptionForPython = Jobobj.description + (comment ?  ' { special comment - ' + comment  + ' } ': '');
-
-
     const jobPrompt = buildJobPrompt(Jobobj, comment);
-
     console.log("Job Prompt for Python Service:", jobPrompt);
     const rankingResponse = await axios.post(process.env.PYTHON_SERVICE_URL, 
       { 
