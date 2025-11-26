@@ -5,6 +5,7 @@ const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
 const { OpenAI } = require("openai");
+const crypto = require("crypto");
 const { v4: uuidv4 } = require("uuid");
 const AWS = require("aws-sdk");
 const sharp = require("sharp");
@@ -105,7 +106,6 @@ exports.createJob = async (req, res) => {
 };
 
 function buildImagePrompt(description, skills = []) {
-  // Extract key themes and industry from description
   const industryKeywords = {
     tech: ['software', 'developer', 'programming', 'coding', 'engineer', 'technical', 'IT', 'technology', 'digital', 'web', 'mobile', 'app'],
     design: ['design', 'UI', 'UX', 'graphic', 'visual', 'creative', 'artist', 'designer'],
@@ -127,7 +127,6 @@ function buildImagePrompt(description, skills = []) {
     }
   }
 
-  // Industry-specific visual elements
   const industryVisuals = {
     tech: 'abstract geometric patterns, subtle circuit board elements, modern tech icons, clean code snippets background',
     design: 'creative geometric shapes, color palettes, design tools silhouettes, artistic elements',
@@ -140,31 +139,70 @@ function buildImagePrompt(description, skills = []) {
     general: 'professional abstract patterns, corporate elements, business symbols'
   };
 
-  return `Create a professional web banner (1792x1024) for a job posting with these STRICT requirements:
+  const topSkills = skills.slice(0, 5).join(", ");
+  const sanitizedDesc = description.substring(0, 300);
+  return `Create a professional web banner (1792x1024) strictly following these rules:
 
-CONTENT RESTRICTIONS:
-- NO text, letters, words, or readable content anywhere in the image
-- NO company logos, brand names, or identifiable symbols
-- NO people faces, photographs, or realistic human figures
-- NO complex illustrations or detailed graphics
+HARD RULES (MUST OBEY):
+- ABSOLUTELY NO text, letters, numbers, words, glyphs, typography, or readable content anywhere
+- NO company logos, brand marks, or identifiable symbols of any kind
+- NO people faces, human figures, silhouettes, or photographs
+- NO screenshots, UI mockups, or literal code text
 
-DESIGN REQUIREMENTS:
-- Clean, minimalist background with subtle ${industryVisuals[detectedIndustry]}
-- Use professional color palette: soft blues, grays, whites, or muted corporate colors
-- Gradient background from light to slightly darker shade
-- Abstract geometric shapes or patterns only
-- Maximum 3-4 visual elements total
-- 70% empty space for text overlay
+VISUAL STYLE:
+- Ultra-minimal, abstract, geometric, vector-style composition
+- Clean, modern corporate palette: soft blues, grays, whites, muted accents
+- Gentle gradient background; subtle ${industryVisuals[detectedIndustry]}
+- Use only simple shapes and icon-like motifs; maximum 3–4 visual elements
+- Keep ~70% empty space; composition must feel calm and uncluttered
 
-INDUSTRY CONTEXT: ${detectedIndustry}
-JOB FOCUS: ${description.substring(0, 200)}...
-SKILLS TO REPRESENT: ${skills.slice(0, 5).join(", ")}
+CONTENT ALIGNMENT:
+- Theme must reflect the job context: ${detectedIndustry}
+- Represent job focus and requirements purely via abstract iconography and shapes
+- DO NOT place any textual content from the description or requirements on the image
+- If brand or product names appear in the description, DO NOT depict their logos; use generic shapes
 
-STYLE: Modern corporate design, suitable for LinkedIn or professional job boards
-MOOD: Professional, trustworthy, innovative, clean
-FORMAT: Web banner optimized for job posting platforms
+JOB CONTEXT (for thematic guidance only):
+- Description: ${sanitizedDesc}...
+- Skills: ${topSkills}
 
-The banner should feel appropriate for the job role while maintaining complete visual simplicity and professionalism.`;
+OUTPUT:
+- Single banner image suitable for job posting platforms
+- The final image must contain zero readable text and only abstract visuals aligned to the role.`;
+}
+
+function parseHumanFeedback(comment) {
+  if (!comment || typeof comment !== 'string') return {};
+  const txt = comment.toLowerCase();
+  const vocab = [
+    'java','spring boot','react','angular','node.js','node','express','typescript','python','dotnet','c#','asp.net','azure','aws','docker','kubernetes','terraform','graphql','kafka','spark','airflow','postgresql','mysql','sql server'
+  ];
+  const preferMarkers = ['prefer','prioritize','focus on','emphasize','highlight'];
+  const avoidMarkers = ['avoid','penalize','deprioritize','not','exclude'];
+  const boost = new Set();
+  const penalize = new Set();
+  for (const skill of vocab) {
+    const s = skill.toLowerCase();
+    if (txt.includes(s)) {
+      const nearPrefer = preferMarkers.some(m => txt.includes(m));
+      const nearAvoid = avoidMarkers.some(m => txt.includes(m));
+      if (nearPrefer && !nearAvoid) boost.add(skill);
+      if (nearAvoid && !nearPrefer) penalize.add(skill);
+      if (!nearPrefer && !nearAvoid) boost.add(skill);
+    }
+  }
+  const expMatch = txt.match(/(\d+)\s*\+?\s*(years?|yrs?)/);
+  const min_experience = expMatch ? Number(expMatch[1]) : undefined;
+  let exclude_education_below;
+  if (txt.includes('exclude diploma')) exclude_education_below = 2;
+  if (txt.includes("prefer bachelor's") || txt.includes('prefer bachelors')) exclude_education_below = 2;
+  if (txt.includes("prefer master's") || txt.includes('prefer masters')) exclude_education_below = 3;
+  return {
+    boost_skills: Array.from(boost),
+    penalize_skills: Array.from(penalize),
+    min_experience,
+    exclude_education_below
+  };
 }
 
 exports.generateBanner = async (req, res) => {
@@ -187,10 +225,9 @@ exports.generateBanner = async (req, res) => {
     // Generate image with OpenAI DALL·E with enhanced parameters
     const response = await openai.images.generate({
       model: "dall-e-3",
-      prompt: prompt,
+      prompt,
       size: "1792x1024",
-      quality: "hd", // Use HD quality for more professional output
-      style: "natural", // Use natural style for more professional look
+      quality: "hd",
       n: 1,
     });
 
@@ -287,7 +324,7 @@ exports.getCvsByJobId = async (req, res) => {
 };
 
 
-
+ 
 
 
 
@@ -295,17 +332,20 @@ exports.getJobsById = async (req, res) => {
   try {
     const jobId = new ObjectId(req.params.id);
     const comment  = req.body.comment;
+    let human_feedback = req.body.human_feedback;
+    if (!human_feedback && comment) {
+      human_feedback = parseHumanFeedback(comment);
+    }
 
     if (!jobId) {
       return res.status(400).json({ error: "Job ID is required" });
     }
 
-    const cacheId = `job:${jobId.toString()}:rankings`;
-    // check redis cache first
- 
+    const feedbackKeyBase = comment ? String(comment) : (human_feedback ? JSON.stringify(human_feedback) : "");
+    const feedbackHash = feedbackKeyBase ? crypto.createHash('sha256').update(feedbackKeyBase).digest('hex') : '';
+    const cacheId = feedbackHash ? `job:${jobId.toString()}:rankings:${feedbackHash}` : `job:${jobId.toString()}:rankings`;
     const cachedData =  await redisClient.get(cacheId);
-
-    if (cachedData && comment== null) {
+    if (cachedData) {
       return res.json(JSON.parse(cachedData));
     }
 
@@ -394,7 +434,7 @@ exports.getJobsById = async (req, res) => {
       { 
         jobId: Jobobj._id.toString() ,
         job_description: jobPrompt,
-        
+        human_feedback
       });
 
     const rankingResult = rankingResponse.data.candidates; // Assuming response is { rankings: [ { userId, score }, ... ] }
@@ -409,7 +449,7 @@ exports.getJobsById = async (req, res) => {
     });
  
     // set redis score cache
-    await redisClient.set(`job:${Jobobj._id.toString()}:rankings`, JSON.stringify(Jobobj));  
+    await redisClient.set(cacheId, JSON.stringify(Jobobj));  
 
     res.json(Jobobj);
   } catch (error) {
@@ -479,4 +519,189 @@ Use the job description plus the requirements to judge:
  
 `.trim();
 }
+
+async function runRankingJob(jobId, comment, human_feedback, rankingJobId) {
+  const statusKey = `ranking:${rankingJobId}:status`;
+  const resultKey = `ranking:${rankingJobId}:result`;
+  await redisClient.set(statusKey, JSON.stringify({ state: "initializing", progress: 0 }));
+
+  const feedbackKeyBase = comment ? String(comment) : (human_feedback ? JSON.stringify(human_feedback) : "");
+  const feedbackHash = feedbackKeyBase ? crypto.createHash('sha256').update(feedbackKeyBase).digest('hex') : '';
+  try {
+    await redisClient.set(statusKey, JSON.stringify({ state: "aggregating", progress: 10 }));
+    const query = [
+      { $match: { _id: jobId } },
+      { $lookup: { from: "applications", localField: "_id", foreignField: "jobId", as: "applications" } },
+      { $unwind: { path: "$applications", preserveNullAndEmptyArrays: true } },
+      { $lookup: { from: "profiles", localField: "applications.userId", foreignField: "userId", as: "applications.user" } },
+      { $unwind: { path: "$applications.user", preserveNullAndEmptyArrays: true } },
+      { $group: { _id: "$_id", title: { $first: "$title" }, location: { $first: "$location" }, jobType: { $first: "$jobType" }, createdAt: { $first: "$createdAt" }, banner: { $first: "$banner" }, requirements: { $first: "$requirements" }, description: { $first: "$description" }, applications: { $push: { _id: "$applications._id", resume: "$applications.resume", appliedAt: "$applications.createdAt", profileImage: "$applications.user.profileImage", userId: "$applications.user._id", usereEmail: "$applications.user.email", usereFullName: "$applications.user.fullName", usereHeadline: "$applications.user.headline", usereAbout: "$applications.user.about" } } } }
+    ];
+    const job = await Job.aggregate(query);
+    if (!job) {
+      await redisClient.set(statusKey, JSON.stringify({ state: "error", message: "Job not found" }));
+      return;
+    }
+
+    console.log("Job data recieved for ranking job:", jobId.toString());
+
+    const Jobobj = job[0];
+    Jobobj.banner = getSignedUrl(Jobobj.banner);
+    Jobobj.applications.forEach((application) => {
+      if (application.resume) application.resume = getSignedUrl(application.resume);
+      if (application.profileImage) application.profileImage = getSignedUrl(application.profileImage);
+    });
+
+    console.log("Signing images generated for ranking job:", jobId.toString());
+
+    await redisClient.set(statusKey, JSON.stringify({ state: "ranking", progress: 40 }));
+
+    console.log("Job prompt generated for ranking job:", jobId.toString());
+    const jobPrompt = buildJobPrompt(Jobobj, comment);
+    const rankingResponse = await axios.post(process.env.PYTHON_SERVICE_URL,
+      { jobId: Jobobj._id.toString(), job_description: jobPrompt, human_feedback }
+    );
+    await redisClient.set(statusKey, JSON.stringify({ state: "mapping", progress: 70 }));
+    const rankingResult = rankingResponse.data.candidates || [];
+    Jobobj.applications.forEach((application) => {
+      const fileName = path.basename(application.resume).split("?")[0];
+      const resumeMatch = rankingResult.find((item) => item.filename === fileName);
+      if (resumeMatch) {
+        application.score = resumeMatch.score;
+        application.explanation = resumeMatch;
+      }
+    });
+    Jobobj.applications = (Jobobj.applications || []).sort((a, b) => (b?.score ?? 0) - (a?.score ?? 0));
+    const cacheId = feedbackHash ? `job:${Jobobj._id.toString()}:rankings:${feedbackHash}` : `job:${Jobobj._id.toString()}:rankings`;
+    await redisClient.set(cacheId, JSON.stringify(Jobobj));
+    await redisClient.set(resultKey, JSON.stringify(Jobobj));
+    await redisClient.set(statusKey, JSON.stringify({ state: "done", progress: 100 }));
+  } catch (error) {
+    console.error("Error in ranking job:", error);
+    await redisClient.set(statusKey, JSON.stringify({ state: "error", message: String(error?.message || error) }));
+  }
+}
+
+exports.startRankingJob = async (req, res) => {
+  try {
+    const jobId = new ObjectId(req.params.id);
+    const comment = req.body.comment;
+    let human_feedback = req.body.human_feedback;
+    if (!human_feedback && comment) human_feedback = parseHumanFeedback(comment);
+    const feedbackKeyBase = comment ? String(comment) : (human_feedback ? JSON.stringify(human_feedback) : "");
+    const feedbackHash = feedbackKeyBase ? crypto.createHash('sha256').update(feedbackKeyBase).digest('hex') : '';
+    const rankingJobId = `${jobId.toString()}:${feedbackHash}:${uuidv4()}`;
+    setImmediate(() => runRankingJob(jobId, comment, human_feedback, rankingJobId));
+
+    
+    const query = [
+      {
+        $match: {
+          _id: jobId,
+        },
+      },
+      {
+        $lookup: {
+          from: "applications",
+          localField: "_id",
+          foreignField: "jobId",
+          as: "applications",
+        },
+      },
+      { $unwind: { path: "$applications", preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: "profiles",
+          localField: "applications.userId",
+          foreignField: "userId",
+          as: "applications.user",
+        },
+      },
+      {
+        $unwind: {
+          path: "$applications.user",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $group: {
+          _id: "$_id",
+          title: { $first: "$title" },
+          location: { $first: "$location" },
+          jobType: { $first: "$jobType" },
+          createdAt: { $first: "$createdAt" },
+          banner: { $first: "$banner" },
+          requirements: { $first: "$requirements" },
+          description: { $first: "$description" },
+          applications: {
+            $push: {
+              _id: "$applications._id",
+              resume: "$applications.resume",
+              appliedAt: "$applications.createdAt",
+              profileImage: "$applications.user.profileImage",
+              userId: "$applications.user._id",
+              usereEmail: "$applications.user.email",
+              usereFullName: "$applications.user.fullName",
+              usereHeadline: "$applications.user.headline",
+              usereAbout: "$applications.user.about",
+            },
+          },
+        },
+      },
+    ];
+
+    const job = await Job.aggregate(query);
+
+    if (!job) {
+      return res.status(404).json({ error: "Job not found" });
+    }
+    const Jobobj = job[0];
+
+    Jobobj.banner = getSignedUrl(Jobobj.banner);
+
+    Jobobj.applications.forEach((application) => {
+      if (application.resume) {
+        application.resume = getSignedUrl(application.resume);
+      }
+    
+      if (application.profileImage){
+        application.profileImage = getSignedUrl(application.profileImage);
+      } 
+      
+
+    });
+
+    return res.status(202).json({ rankingJobId , "job":Jobobj });
+  } catch (e) {
+    return res.status(500).json({ error: "Failed to start ranking job" });
+  }
+};
+
+exports.getRankingStatus = async (req, res) => {
+  try {
+    const rankingJobId = req.params.id;
+    const statusKey = `ranking:${rankingJobId}:status`;
+
+    console.log("Fetching status for key:", statusKey);
+    const status = await redisClient.get(statusKey);
+    console.log("Status found:", status);
+    if (!status) return res.status(404).json({ error: "Not found" });
+    return res.json(JSON.parse(status));
+  } catch (e) {
+    console.error("Error fetching status:", e);
+    return res.status(500).json({ error: "Failed to get status"  });
+  }
+};
+
+exports.getRankingResult = async (req, res) => {
+  try {
+    const rankingJobId = req.params.id;
+    const resultKey = `ranking:${rankingJobId}:result`;
+    const result = await redisClient.get(resultKey);
+    if (!result) return res.status(202).json({ state: "pending" });
+    return res.json(JSON.parse(result));
+  } catch (e) {
+    return res.status(500).json({ error: "Failed to get result" });
+  }
+};
 

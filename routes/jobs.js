@@ -16,6 +16,9 @@ router.post('/generate-banner', jobsController.generateBanner);
 router.get('/byowner/:id', jobsController.getJobsByUserId);
 
 router.post('/getjobById/:id', jobsController.getJobsById);
+router.post('/ranking/start/:id', jobsController.startRankingJob);
+router.get('/ranking/status/:id', jobsController.getRankingStatus);
+router.get('/ranking/result/:id', jobsController.getRankingResult);
 
 router.get('/getCvsByJobId/:id', jobsController.getCvsByJobId);
 
